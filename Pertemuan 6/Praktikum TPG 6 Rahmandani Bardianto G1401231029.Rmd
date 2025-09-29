@@ -1,0 +1,354 @@
+---
+title: "TPG Praktikum"
+author: "Rahmandani Bardianto G1401231029"
+date: "2025-09-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(MASS)
+library(MVTests)   
+library(Hotelling)
+```
+
+# Perbandingan dua vektor nilai tengah sampel berpasangan
+```{r}
+set.seed(1401231029)
+nMahasiswa <- 30
+
+# Nilai sebelum 
+muSebelum    <- c(68, 65)  # kalkulus, aljabar
+SigmaSebelum <- matrix(c(9^2, 0.5*9*10,
+                         0.5*9*10, 10^2), 2, 2, byrow = TRUE)
+sebelumMat   <- mvrnorm(nMahasiswa, muSebelum, SigmaSebelum)
+colnames(sebelumMat) <- c("kalkulusSebelum","aljabarSebelum")
+
+# Perubahan (sesudah - sebelum)
+muDelta   <- c(6, 5)
+SigmaDelta<- matrix(c(3^2, 0.4*3*4,
+                      0.4*3*4, 4^2), 2, 2, byrow = TRUE)
+deltaMat  <- mvrnorm(nMahasiswa, muDelta, SigmaDelta)
+colnames(deltaMat) <- c("deltaKalkulus","deltaAljabar")
+
+# Nilai sesudah
+sesudahMat <- cbind(sebelumMat[,1] + deltaMat[,1],
+                    sebelumMat[,2] + deltaMat[,2])
+colnames(sesudahMat) <- c("kalkulusSesudah","aljabarSesudah")
+
+# Dataset ala "sheet 1"
+dataset <- data.frame(
+  kalkulusSebelum = sebelumMat[,1],
+  aljabarSebelum  = sebelumMat[,2],
+  kalkulusSesudah = sesudahMat[,1],
+  aljabarSesudah  = sesudahMat[,2]
+)
+dataset
+
+```
+#Menghitung selisih sesudah - sebelum
+```{r}
+dKalkulus <- dataset[,3] - dataset[,1]
+dAljabar  <- dataset[,4] - dataset[,2]
+X <- data.frame(dKalkulus, dAljabar)
+```
+
+#Menghitung vektor rataan dan matriks kovarian
+```{r}
+xbar  <- colMeans(X)
+xbar
+
+cov_m <- cov(X)
+cov_m
+
+```
+#Uji T^2 Hoteling dua populasi sampel berpasangan
+```{r}
+mean0  <- c(0,0)
+result <- OneSampleHT2(X, mu0 = mean0, alpha = 0.05)
+summary(result)
+
+```
+#Selang kepercayaan simultan
+```{r}
+result$CI
+
+```
+#Selang kepercayaan bonferroni
+```{r}
+bon <- function(mu,S,n,alpha,k){
+  p <- length(mu)
+  lower <- mu[k] - sqrt(S[k,k]/n) * abs(qt(alpha/(2*p), df=n-1))
+  upper <- mu[k] + sqrt(S[k,k]/n) * abs(qt(alpha/(2*p), df=n-1))
+  c(lower = lower, upper = upper)
+}
+n <- nrow(X)
+
+# Kalkulus
+bon(xbar, cov_m, n, 0.05, 1)
+
+# Aljabar
+bon(xbar, cov_m, n, 0.05, 2)
+
+```
+
+#Perbandingan dua vektor nilai tengah sampel saling bebas dengan ragam sama
+
+```{r}
+nDaring <- 25; nLuring <- 25
+
+# Kovarians sama
+SigmaEqual <- matrix(c(8^2, 0.45*8*9,
+                       0.45*8*9, 9^2), 2, 2, byrow = TRUE)
+
+# Rataan (Luring sedikit lebih tinggi)
+muDaring <- c(70, 68) # Aljabar, Geometri
+muLuring <- c(73, 71)
+
+dataDaring <- mvrnorm(nDaring, muDaring, SigmaEqual)
+dataLuring <- mvrnorm(nLuring, muLuring, SigmaEqual)
+colnames(dataDaring) <- c("Aljabar","Geometri")
+colnames(dataLuring) <- c("Aljabar","Geometri")
+
+# "Pisah populasi"
+data_cat <- dataDaring
+data_man <- dataLuring
+data_cat; data_man
+
+```
+#Menghitung vektor rataan dan matriks kovarians
+```{r}
+xbar1  <- colMeans(data_cat);  xbar1
+xbar2  <- colMeans(data_man);  xbar2
+cov_m1 <- cov(data_cat);       cov_m1
+cov_m2 <- cov(data_man);       cov_m2
+
+n1 <- nrow(data_cat); n2 <- nrow(data_man)
+
+# S gabungan
+s_gab <- ((n1-1)*cov_m1 + (n2-1)*cov_m2)/(n1 + n2 - 2)
+s_gab
+
+```
+#Uji T^2 hotelling dua populasi (Ragam sama)
+```{r}
+t2_homogen <- hotelling.test(data_cat, data_man, var.equal = TRUE)
+t2_homogen
+
+```
+#Selang kepercayaan simultan
+```{r}
+TciEqual <- function(mu1, mu2, Sgab, n1, n2, avec = c(1,0), level = 0.95){
+  p    <- length(mu1)
+  mu   <- mu1 - mu2
+  cval <- qf(level, p, n1 + n2 - p - 1) * p * (n1 + n2 - 2) / (n1 + n2 - p - 1)
+  zhat <- as.numeric(crossprod(avec, mu))
+  zvar <- as.numeric(crossprod(avec, Sgab %*% avec)) * (1/n1 + 1/n2)
+  cons <- sqrt(cval * zvar)
+  c(lower = zhat - cons, upper = zhat + cons)
+}
+
+# Aljabar
+TciEqual(xbar1, xbar2, s_gab, n1, n2, avec = c(1,0), level = 0.95)
+
+# Geometri
+TciEqual(xbar1, xbar2, s_gab, n1, n2, avec = c(0,1), level = 0.95)
+
+```
+#Selang kepercayaan bonferroni
+```{r}
+bonEqual <- function(mu1, mu2, S, n1, n2, alpha, k){
+  p   <- length(mu1)
+  dif <- mu1 - mu2
+  se  <- sqrt(S[k,k] * (1/n1 + 1/n2))
+  tcv <- abs(qt(alpha/(2*p), df = n1 + n2 - 2))
+  c(lower = dif[k] - tcv*se, upper = dif[k] + tcv*se)
+}
+
+# Aljabar
+bonEqual(xbar1, xbar2, s_gab, n1, n2, 0.05, 1)
+
+# Geometri
+bonEqual(xbar1, xbar2, s_gab, n1, n2, 0.05, 2)
+
+```
+
+#Perbandingan Dua Vektor Nilai tengah sampel saling bebas dan ragam tidak sama
+
+```{r}
+nIntensif <- 24; nMandiri <- 26
+
+# Kovarians berbeda
+SigmaIntensif <- matrix(c(10^2,  0.2*10*12,
+                          0.2*10*12, 12^2), 2, 2, byrow = TRUE)
+SigmaMandiri  <- matrix(c(7^2,  -0.5*7*14,
+                          -0.5*7*14, 14^2), 2, 2, byrow = TRUE)
+
+muIntensif <- c(75, 77) # Statistika, Pemrograman
+muMandiri  <- c(71, 72)
+
+dataIntensif <- mvrnorm(nIntensif, muIntensif, SigmaIntensif)
+dataMandiri  <- mvrnorm(nMandiri,  muMandiri,  SigmaMandiri)
+colnames(dataIntensif) <- c("Statistika","Pemrograman")
+colnames(dataMandiri)  <- c("Statistika","Pemrograman")
+
+# "Pisah populasi"
+data_cat <- dataIntensif
+data_man <- dataMandiri
+data_cat; data_man
+
+```
+#Menghitung vektor rataan dan matriks kovarian
+```{r}
+xbar1  <- colMeans(data_cat); xbar1
+xbar2  <- colMeans(data_man); xbar2
+cov_m1 <- cov(data_cat);      cov_m1
+cov_m2 <- cov(data_man);      cov_m2
+
+n1 <- nrow(data_cat); n2 <- nrow(data_man)
+
+```
+#Menghitung vektor rataan dan matriks kovarians
+```{r}
+xbar1  <- colMeans(data_cat); xbar1
+xbar2  <- colMeans(data_man); xbar2
+cov_m1 <- cov(data_cat);      cov_m1
+cov_m2 <- cov(data_man);      cov_m2
+
+n1 <- nrow(data_cat); n2 <- nrow(data_man)
+
+```
+#Uji T^2 hotelling dua populasi (ragam tidak sama)
+```{r}
+t2_not_homogen <- hotelling.test(data_cat, data_man, var.equal = FALSE)
+t2_not_homogen
+
+```
+#Selang kepercayaan simultan
+```{r}
+TciUnequal <- function(mu1, mu2, S1, S2, n1, n2, avec = c(1,0), level = 0.95){
+  p    <- length(mu1)
+  mu   <- mu1 - mu2
+  cval <- qchisq(level, df = p)
+  zhat <- as.numeric(crossprod(avec, mu))
+  zvar <- as.numeric(crossprod(avec, S1 %*% avec))/n1 +
+          as.numeric(crossprod(avec, S2 %*% avec))/n2
+  cons <- sqrt(cval * zvar)
+  c(lower = zhat - cons, upper = zhat + cons)
+}
+
+# Statistika
+TciUnequal(xbar1, xbar2, cov_m1, cov_m2, n1, n2, avec = c(1,0), level = 0.95)
+
+# Pemrograman
+TciUnequal(xbar1, xbar2, cov_m1, cov_m2, n1, n2, avec = c(0,1), level = 0.95)
+
+```
+
+#1. Kasus / Data Bangkitan
+
+Praktikum ini menggunakan data bangkitan untuk membandingkan nilai mahasiswa dalam beberapa scenario:
+
+Sampel Berpasangan (Sebelum vs Sesudah Pembelajaran)
+
+Data: Nilai mahasiswa Kalkulus dan Aljabar sebelum dan sesudah pembelajaran.
+
+Tujuan: Mengetahui apakah pembelajaran memberikan peningkatan nilai secara signifikan.
+
+Sampel Bebas, Ragam Sama (Daring vs Luring)
+
+Data: Nilai mahasiswa Aljabar dan Geometri dari dua kelompok: Daring dan Luring.
+
+Tujuan: Mengetahui apakah metode pembelajaran berbeda memengaruhi nilai rata-rata.
+
+Sampel Bebas, Ragam Tidak Sama (Intensif vs Mandiri)
+
+Data: Nilai mahasiswa Statistika dan Pemrograman dari dua kelompok: Intensif dan Mandiri.
+
+Tujuan: Mengetahui apakah program pembelajaran berbeda memengaruhi nilai rata-rata.
+
+#Sampel Berpasangan (Sebelum vs Sesudah)
+
+Data bangkitan:
+30 mahasiswa dengan nilai sebelum dan sesudah.
+Nilai Kalkulus dan Aljabar dihitung perubahan sesudah – sebelum.
+
+Hasil Analisis Hotelling T²:
+
+T² = 65.60, F = 31.67, df1 = 2, df2 = 28, p-value = 6.47e-08
+
+Rataan perubahan: Kalkulus = 4.60, Aljabar = 4.15
+
+Selang kepercayaan 95% (simultan / Bonferroni):
+
+Kalkulus: 3.04 – 6.17
+
+Aljabar: 2.28 – 6.02
+
+Interpretasi:
+
+Nilai mahasiswa meningkat secara signifikan setelah pembelajaran pada kedua mata kuliah.
+
+Selang kepercayaan tidak mencakup 0 → perubahan nyata.
+
+Kesimpulan: Pembelajaran efektif meningkatkan nilai mahasiswa pada Kalkulus dan Aljabar.
+
+# Sampel Bebas dengan Ragam Sama (Daring vs Luring)
+
+Data bangkitan:
+25 mahasiswa Daring dan 25 mahasiswa Luring dengan nilai Aljabar dan Geometri.
+Kovarians diasumsikan sama.
+
+Rataan:
+
+Daring: Aljabar = 72.45, Geometri = 68.83
+
+Luring: Aljabar = 72.18, Geometri = 69.39
+
+Hasil Hotelling T²: Test stat = 0.11175, p-value = 0.9468
+
+Selang kepercayaan 95%:
+
+Aljabar: -6.08 – 6.61
+
+Geometri: -7.74 – 6.62
+
+Interpretasi:
+
+Tidak ada perbedaan signifikan antara kelompok Daring dan Luring.
+
+Selang kepercayaan mencakup 0 → nilai rata-rata setara.
+
+Kesimpulan: Metode pembelajaran Daring dan Luring memberikan hasil yang serupa.
+
+# Sampel Bebas dengan Ragam Tidak Sama (Intensif vs Mandiri)
+
+Data bangkitan:
+24 mahasiswa Intensif dan 26 mahasiswa Mandiri dengan nilai Statistika dan Pemrograman.
+Kovarians diasumsikan berbeda.
+
+Rataan:
+
+Intensif: Statistika = 75.28, Pemrograman = 77.38
+
+Mandiri: Statistika = 71.92, Pemrograman = 75.60
+
+Hasil Hotelling T²: Test stat = 2.1854, p-value = 0.3517
+
+Selang kepercayaan 95%:
+
+Statistika: -2.51 – 9.22
+
+Pemrograman: -6.74 – 10.31
+
+Interpretasi:
+
+Tidak ada perbedaan signifikan antara kelompok Intensif dan Mandiri.
+
+Selang kepercayaan mencakup 0 → nilai rata-rata setara.
+
+Kesimpulan: Program pembelajaran Intensif dan Mandiri memberikan hasil yang tidak berbeda secara signifikan.  
