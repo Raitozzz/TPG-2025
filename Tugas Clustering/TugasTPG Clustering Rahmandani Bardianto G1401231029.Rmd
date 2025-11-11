@@ -1,0 +1,250 @@
+---
+title: "TPG Praktikum"
+author: "Rahmandani G1401231029"
+date: "2025-11-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(GGally)
+library(factoextra)
+library(corrplot)
+library(cowplot)
+library(scales)
+library(cluster)
+library(ggplot2)
+```
+# link =- https://www.kaggle.com/datasets/vetrirah/customer
+# Import
+```{r}
+path_file <- "C:/Users/PC/Downloads/Test.csv"
+
+df_full <- read.csv(path_file, stringsAsFactors = FALSE)
+
+# Hapus baris yang memiliki NA di seluruh kolom yang akan dipakai
+df <- na.omit(df_full)
+```
+
+# Pilih kolom yang diperlukan & pastikan numerik
+```{r}
+kolom_pakai <- c("Age", "Work_Experience", "Family_Size", "Spending_Score")
+
+# Pastikan kolom ada
+missing_kolom <- setdiff(kolom_pakai, names(df))
+if (length(missing_kolom) > 0) stop("Kolom yang hilang: ", paste(missing_kolom, collapse = ", "))
+
+df <- df %>% select(all_of(kolom_pakai))
+
+# Jika Spending_Score berbentuk kategori (Low/Average/High), konversi ke numeric 1-3
+if (is.character(df$Spending_Score) || is.factor(df$Spending_Score)) {
+  df$Spending_Score <- as.numeric(factor(df$Spending_Score,
+                                         levels = c("Low", "Average", "High"),
+                                         labels = c(1, 2, 3)))
+}
+
+
+for (col in names(df)) {
+  if (!is.numeric(df[[col]])) {
+    warning("Kolom '", col, "' bukan numeric. Mencoba konversi otomatis.")
+    df[[col]] <- as.numeric(df[[col]])
+  }
+}
+
+
+if (any(is.na(df))) {
+  stop("Terdapat NA setelah konversi ke numeric. Periksa nilai non-numeric di kolom: ",
+       paste(names(df)[colSums(is.na(df)) > 0], collapse = ", "))
+}
+
+str(df)
+summary(df)
+
+
+sum(is.na(df))
+```
+
+# Eksplorasi
+```{r}
+# Distribusi Spending Score (sebagai kategori 1-3)
+barplot(table(df$Spending_Score),
+        main = "Distribusi Spending Score",
+        xlab = "Spending Score (1=Low,2=Average,3=High)",
+        ylab = "Frekuensi",
+        col = c("lightblue", "lightgreen", "lightcoral"),
+        names.arg = c("Low", "Average", "High"))
+
+barplot(table(df$Family_Size),
+        main = "Distribusi Family Size",
+        xlab = "Family Size",
+        ylab = "Frekuensi",
+        col = "lightblue")
+
+barplot(table(df$Work_Experience),
+        main = "Distribusi Work Experience",
+        xlab = "Work Experience (Years)",
+        ylab = "Frekuensi",
+        col = "lightgreen")
+
+# Korelasi Pearson antar variabel numerik
+cor_mat <- cor(df, use = "complete.obs", method = "pearson")
+corrplot(cor_mat,
+         method = "shade",
+         addCoef.col = "black",
+         tl.col = "black",
+         tl.srt = 45,
+         number.cex = 0.8,
+         col = colorRampPalette(c("blue", "white", "red"))(200))
+```
+# PCA 
+```{r}
+pca_res <- prcomp(df, center = TRUE, scale. = TRUE)
+
+# Ringkasan PCA
+summary(pca_res)
+
+# Varians & proporsi varians
+var_explained <- pca_res$sdev^2
+prop_var <- var_explained / sum(var_explained)
+prop_var
+```
+# Scree plot & biplot 
+```{r}
+df_scree <- data.frame(PC = factor(paste0("PC", 1:length(prop_var)),
+                                   levels = paste0("PC", 1:length(prop_var))),
+                       prop_var = prop_var)
+
+ggplot(df_scree, aes(x = PC, y = prop_var, group = 1)) +
+  geom_line() + geom_point(size = 2) +
+  labs(title = "Scree Plot (Explained Variance)", y = "Explained Variance Ratio", x = "") +
+  theme_minimal()
+
+# Biplot sederhana (PC1 vs PC2) menggunakan base plot (lebih kontrol)
+pcs <- pca_res$x[, 1:2]
+loadings <- pca_res$rotation[, 1:2]
+
+plot(pcs[,1], pcs[,2],
+     pch = 16, cex = 0.6, col = rgb(0,0,0,0.25),
+     xlab = paste0("PC1 (", round(prop_var[1]*100,1), "%)"),
+     ylab = paste0("PC2 (", round(prop_var[2]*100,1), "%)"),
+     main = "Biplot PCA (PC1 vs PC2)")
+
+# panah loadings
+arrows(0,0, loadings[,1]*max(abs(pcs))*1.1, loadings[,2]*max(abs(pcs))*1.1,
+       length = 0.1, col = "red", lwd = 2)
+text(loadings[,1]*max(abs(pcs))*1.2, loadings[,2]*max(abs(pcs))*1.2,
+     labels = rownames(loadings), col = "red", cex = 0.9)
+abline(h=0, v=0, lty=2, col="grey60")
+```
+***Interpretasi***
+
+# persiapan Clustering
+```{r}
+n_pc <- 2
+skor_pca <- as.data.frame(pca_res$x)
+data_pca <- skor_pca[, 1:n_pc, drop = FALSE]
+colnames(data_pca) <- paste0("PC", 1:n_pc)
+head(data_pca)
+```
+
+# (WSS) untuk memilih k
+```{r}
+set.seed(42)
+max_k <- 10
+wss <- sapply(1:max_k, function(k) kmeans(data_pca, centers = k, nstart = 25)$tot.withinss)
+df_wss <- data.frame(k = 1:max_k, wss = wss)
+
+# Heuristik sederhana: second derivative (bisa tidak sempurna)
+diff1 <- diff(wss)
+diff2 <- diff(diff1)
+if (length(diff2) >= 1) {
+  elbow_otomatis <- which.max(-diff2) + 1
+} else {
+  elbow_otomatis <- 2
+}
+message("Estimasi elbow otomatis: k = ", elbow_otomatis)
+
+ggplot(df_wss, aes(x = k, y = wss)) +
+  geom_point(size = 3) + geom_line() +
+  labs(title = "Elbow Method (WSS) pada Skor PCA", x = "Jumlah cluster (k)", y = "WSS") +
+  theme_minimal()
+```
+# Silhoutte
+```{r}
+min_k <- 2; max_k <- 10
+sil_avg <- sapply(min_k:max_k, function(k) {
+  km_tmp <- kmeans(data_pca, centers = k, nstart = 25)
+  ss <- silhouette(km_tmp$cluster, dist(data_pca))
+  mean(ss[, 3])
+})
+df_sil <- data.frame(k = min_k:max_k, sil_avg = sil_avg)
+print(df_sil)
+
+ggplot(df_sil, aes(x = k, y = sil_avg)) +
+  geom_point(size = 3) + geom_line() +
+  scale_x_continuous(breaks = min_k:max_k) +
+  labs(title = "Silhouette Rata-rata pada Skor PCA", x = "Jumlah cluster (k)", y = "Silhouette rata-rata") +
+  theme_minimal()
+
+message("Silhouette tertinggi: k = ", df_sil$k[which.max(df_sil$sil_avg)],
+        " dengan skor ", round(max(df_sil$sil_avg), 3))
+```
+# KMeans dan plot
+```{r}
+k_pilih <- 4
+
+set.seed(42)
+km <- kmeans(data_pca, centers = k_pilih, nstart = 50)
+
+data_pca_cluster <- cbind(data_pca, cluster = factor(km$cluster))
+centers_pca <- as.data.frame(km$centers); centers_pca$cluster <- factor(1:nrow(centers_pca))
+
+# Ukuran cluster
+print(table(data_pca_cluster$cluster))
+print(centers_pca)
+
+# Plot (PC1 vs PC2) — hanya jika n_pc >= 2
+if (ncol(data_pca) >= 2) {
+  ggplot(data_pca_cluster, aes(x = PC1, y = PC2, color = cluster)) +
+    geom_point(alpha = 0.7, size = 2) +
+    geom_point(data = centers_pca, aes(x = PC1, y = PC2), color = "black", shape = 8, size = 3) +
+    labs(title = paste("Hasil KMeans pada Skor PCA (k =", k_pilih, ")"), x = "PC1", y = "PC2") +
+    theme_minimal() +
+    scale_color_brewer(palette = "Set2")
+} else {
+  message("n_pc < 2: tidak dapat mem-plot PC1 vs PC2")
+}
+```
+```{r}
+df_cluster <- df
+df_cluster$cluster <- factor(km$cluster)
+
+ringkasan <- df_cluster %>%
+  group_by(cluster) %>%
+  summarise(across(everything(),
+                   list(mean = ~ mean(.x, na.rm = TRUE),
+                        sd = ~ sd(.x, na.rm = TRUE)),
+                   .names = "{.col}_{.fn}"),
+            jumlah = n())
+
+print(ringkasan)
+print(table(df_cluster$cluster))
+```
+***Interpretasi***
+Berdasarkan hasil analisis K-Means clustering pada skor PCA, proses penentuan jumlah cluster diawali dengan evaluasi rata-rata silhouette. Dari grafik silhouette, terlihat bahwa nilai rata-rata tertinggi dicapai pada k = 4 (sekitar 0,41), yang berarti pemisahan data menjadi empat kelompok memberikan keseimbangan terbaik antara homogenitas dalam cluster dan perbedaan antar cluster. Nilai silhouette yang tidak terlalu tinggi namun stabil (>0,38) pada sebagian besar nilai k menunjukkan bahwa struktur kelompok memang ada, tetapi tidak sangat tajam — artinya data memiliki kecenderungan membentuk beberapa kelompok alami, meskipun dengan tumpang tindih yang moderat antar batas cluster.
+
+Ketika model K-Means diterapkan dengan k = 4, hasil visualisasi pada ruang dua komponen utama (PC1 dan PC2) memperlihatkan pembentukan empat area yang cukup terpisah. Masing-masing cluster memiliki sebaran yang khas di ruang PCA:
+
+Cluster 1 (hijau) terletak di sisi kiri atas, cenderung memiliki nilai PC1 rendah (usia dan spending score lebih rendah) tetapi PC2 tinggi (ukuran keluarga relatif besar, pengalaman kerja lebih sedikit).
+
+Cluster 2 (oranye) berada di kiri bawah, mencerminkan individu dengan usia dan spending score rendah serta pengalaman kerja lebih tinggi, mengingat arah PC2 yang negatif.
+
+Cluster 3 (biru) berada di sisi kanan bawah, mewakili individu dengan usia dan spending score tinggi namun ukuran keluarga kecil.
+
+Cluster 4 (merah muda) mendominasi bagian kanan atas, yaitu kelompok dengan usia dan spending score tinggi serta ukuran keluarga besar namun pengalaman kerja relatif sedang.
+
+Titik bintang hitam di tengah setiap warna menunjukkan pusat cluster (centroid), yang merepresentasikan rata-rata posisi setiap kelompok dalam ruang dua dimensi hasil PCA. Posisi centroid yang terpisah menunjukkan bahwa K-Means berhasil memisahkan kelompok berdasarkan pola utama yang ditangkap oleh PCA, yaitu kombinasi antara dimensi “usia–pengeluaran” (PC1) dan “ukuran keluarga–pengalaman kerja” (PC2). Dengan demikian, dapat disimpulkan bahwa pemilihan empat cluster (k=4) merupakan solusi optimal untuk menggambarkan struktur alami data ini, di mana tiap cluster mencerminkan kombinasi unik antara usia, tingkat pengeluaran, ukuran keluarga, dan pengalaman kerja individu.
