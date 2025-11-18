@@ -1,0 +1,162 @@
+---
+title: "TPG PRAK 11"
+author: "Rahmandani Bardianto G1401231029"
+date: "2025-11-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(rattle)
+library(MASS)
+library(dplyr)
+```
+
+```{r}
+data(wine)
+head(wine)
+
+#ambil 3 kolom (type Alcohol dan Ash)
+df <- wine %>%
+  select(Type, Alcohol, Ash)
+
+#ambil data dimana type hanya 1 atau 2 (2 class saja
+df <- df %>%
+  filter(Type %in% c(1, 2))
+df
+#cek na
+sum(is.na(df))
+```
+
+
+
+# Pisahkan Data per Kelompok
+```{r}
+satu = df %>%
+  filter(Type == 1) %>%
+  select(Alcohol, Ash) %>%
+  as.matrix()
+dua = df %>%
+  filter(Type == 2) %>%
+  select(Alcohol, Ash) %>%
+  as.matrix()
+satu
+dua
+```
+# Hitung Mean per Kelompok
+```{r}
+mean_satu = colMeans(satu)
+mean_dua  = colMeans(dua)
+mean_satu
+mean_dua
+```
+# Hitung Covariance Masing-masing Kelompok
+```{r}
+cov_satu = cov(satu)
+cov_dua  = cov(dua)
+cov_satu
+cov_dua
+```
+# Hitung Covariance Pooled
+```{r}
+n1 = nrow(satu)
+n2 = nrow(dua)
+cov_pooled = ((n1 - 1) * cov_satu + (n2 - 1) * cov_dua) / (n1 + n2 - 2)
+cov_pooled
+```
+
+# Invers Covariance
+```{r}
+inv_cov_pooled = solve(cov_pooled)
+inv_cov_pooled
+```
+# Hitung Koefisien a (Fisher LDA)
+```{r}
+a = inv_cov_pooled %*% (mean_satu - mean_dua)
+a
+```
+# Hitung Nilai h
+```{r}
+h = 0.5 * t(a) %*% (mean_satu + mean_dua)
+h
+```
+# hitung Skor fisher 
+```{r}
+skor_fisher = as.matrix(df[,2:3])
+df$score = skor_fisher %*% a
+head(df)
+```
+
+# Klasifikasi
+```{r}
+h = as.numeric(h)
+df$pred_manual = ifelse(df$score >= h, 1, 2)
+head(df)
+```
+
+# Confusion Matrix
+```{r}
+confusion_matrix = table(Actual = df$Type, Predicted = df$pred_manual)
+confusion_matrix
+```
+# Error Rate
+```{r}
+error_rate = 1 - sum(diag(confusion_matrix)) / sum(confusion_matrix)
+error_rate
+
+error_1 = confusion_matrix[1,2] / sum(confusion_matrix[1,])
+error_2 = confusion_matrix[2,1] / sum(confusion_matrix[2,])
+error_1
+error_2
+
+
+```
+
+# LDA Menggunakan Library MASS
+```{r}
+library(MASS)
+lda_model = lda(Type ~ Alcohol + Ash, data = df)
+lda_model
+```
+
+#  Prediksi Library MASS
+```{r}
+pred = predict(lda_model)
+df$pred_lda = pred$class
+table(Actual = df$Type, Predicted = df$pred_lda)
+
+
+```
+Karena di data set awal ada 3 tipe namun saya hanya menggunakan tipe 1 dan 2 akhirnya tabel hanya terisi di tipe 1 dan 2 saja
+
+# Fungsi Diskriminan per Kelas (1 dan 2)
+```{r}
+# Mean masing-masing kelas
+mean1 = colMeans(satu)
+mean2 = colMeans(dua)
+mean1
+mean2
+
+# # Koefisien per kelas
+coef1 = t(a) %*% inv_cov_pooled
+coef2 = t(a) %*% inv_cov_pooled
+
+#konstanta per kelas
+prior = lda_model$prior
+c_satu = -0.5 * t(mean1) %*% inv_cov_pooled %*% mean1 + log(prior[1])
+c_dua = -0.5 * t(mean2) %*% inv_cov_pooled %*% mean2 + log(prior[2])
+
+# tampikan fungsi satu
+a_satu = c(c_satu, coef1)
+a_satu
+# tampilkan fungsi dua
+a_dua = c(c_dua, coef2)
+a_dua
+
+```
+***Interpretasi***
+
+hasil manual di R studio dan di excel serta library mass di r studio menghasilkan hasil confusion matrix yang hampir sama dan tidak ada yang sama persis di antara ketiganya.
