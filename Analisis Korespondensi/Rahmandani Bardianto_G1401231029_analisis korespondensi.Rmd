@@ -1,0 +1,143 @@
+---
+title: "Latihan Terakhir TPG - Analisis Korespondensi"
+author: "Rahmandani Bardianto G1401231029"
+date: "2025-12-14"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+***Kasus***
+Kasus yang dianalisis adalah apakah jenis layanan transportasi (Kereta, Transjakarta, Angkot) berasosiasi dengan tingkat kepuasan (SangatTidakPuas, TidakPuas, Puas, SangatPuas). Data yang digunakan dibangkitkan di R menggunakan multinomial dengan total responden per layanan (Kereta=220, Transjakarta=200, Angkot=180) dan probabilitas kepuasan yang sengaja dibuat berbeda antar layanan untuk membentuk pola yang realistis; hasilnya membentuk tabel kontingensi 3×4
+
+# Generate data  layanan transportasi vs kepuasan
+```{r}
+library(FactoMineR)
+library(factoextra)
+library(gplots)
+
+set.seed(123)
+
+
+layanan = c("Kereta", "Transjakarta", "Angkot")
+kepuasan = c("SangatTidakPuas", "TidakPuas", "Puas", "SangatPuas")
+
+# Jumlah responden 
+nresponden = c(220, 200, 180)
+names(nresponden) = layanan
+
+probkereta = c(0.05, 0.10, 0.35, 0.50)
+probtrans  = c(0.10, 0.20, 0.40, 0.30)
+probangkot = c(0.40, 0.35, 0.20, 0.05)
+
+
+kereta = as.vector(rmultinom(1, size = nresponden["Kereta"], prob = probkereta))
+trans  = as.vector(rmultinom(1, size = nresponden["Transjakarta"], prob = probtrans))
+angkot = as.vector(rmultinom(1, size = nresponden["Angkot"], prob = probangkot))
+
+matriks = rbind(Kereta = kereta, Transjakarta = trans, Angkot = angkot)
+colnames(matriks) = kepuasan
+
+tablecount = as.table(matriks)
+tablecount
+
+```
+# Balloon plot
+```{r}
+balloonplot(
+  tablecount,
+  main = "Tabel Kontingensi: Layanan Transportasi × Kepuasan",
+  xlab = "",
+  ylab = "",
+  label = FALSE,
+  show.margins = FALSE
+)
+
+proporsibaris = prop.table(tablecount, 1)
+round(proporsibaris, 3)
+
+```
+Plot balloon  menunjukkan pola yang jelas dari tabel kontingensi Layanan Transportasi × Kepuasan: ukuran lingkaran merepresentasikan frekuensi, jadi sel dengan lingkaran paling besar adalah kombinasi yang paling sering muncul. Terlihat Kereta didominasi oleh kategori Puas dan terutama Sangat Puas (lingkaran besar di dua baris bawah), sementara pada Sangat Tidak Puas dan Tidak Puas lingkarannya kecil—artinya keluhan relatif sedikit. Transjakarta paling menonjol di kategori Puas (lingkaran besar), dengan Tidak Puas dan Sangat Tidak Puas masih ada tapi tidak sebesar Angkot, dan Sangat Puas relatif lebih kecil dibanding Kereta. Sebaliknya, Angkot paling kuat pada Sangat Tidak Puas dan Tidak Puas (lingkaran terbesar di dua baris atas), sedangkan pada Puas dan terutama Sangat Puas lingkarannya kecil—menandakan kepuasan tinggi jarang terjadi pada Angkot. Ini sudah memberi sinyal kuat bahwa tingkat kepuasan berbeda menurut layanan (tidak “rata”/independen).
+
+
+# Chi-square test
+```{r}
+chisq = chisq.test(tablecount)
+chisq
+
+```
+***Hasil chi square test***
+Pearson’s Chi-squared test menunjukkan bahwa jenis layanan transportasi dan tingkat kepuasan tidak independen. Nilai statistik uji X² = 198,5 dengan df = 6 menghasilkan p-value < 2,2×10⁻¹⁶, jauh di bawah taraf nyata umum (mis. 0,05), sehingga H₀ (tidak ada hubungan/asosiasi) ditolak. Artinya, distribusi kepuasan berbeda nyata antar layanan (Kereta, Transjakarta, Angkot), konsisten dengan pola pada tabel/balloon plot bahwa beberapa kombinasi layanan–kepuasan muncul jauh lebih sering daripada yang diharapkan jika keduanya tidak terkait.
+
+# Correspondence Analysis
+```{r}
+modelca = CA(tablecount, graph = FALSE)
+print(modelca)
+
+```
+
+# Eigenvalues and Scree plot
+```{r}
+eigval = get_eigenvalue(modelca)
+eigval
+
+fviz_screeplot(modelca, addlabels = TRUE)
+
+```
+
+
+# profil baris (layanan) 
+```{r}
+baris = get_ca_row(modelca)
+baris$coord
+baris$contrib
+baris$cos2
+
+fviz_ca_row(modelca, repel = TRUE)
+
+```
+
+# profil kolom (kepuasan)
+```{r}
+kolom = get_ca_col(modelca)
+kolom$coord
+kolom$contrib
+kolom$cos2
+
+fviz_ca_col(modelca, repel = TRUE)
+
+```
+
+# Biplot  analisis korespondensi
+```{r}
+persen1 = modelca$eig[1,2]
+persen2 = modelca$eig[2,2]
+
+judulutama = "Analisis Korespondensi: Layanan Transportasi × Tingkat Kepuasan"
+subjudul = sprintf("Dimensi 1 = %.1f%% | Dimensi 2 = %.1f%%", persen1, persen2)
+
+plotca =
+  fviz_ca_biplot(modelca, repel = TRUE, title = "") +
+  labs(title = judulutama, subtitle = subjudul, x = "Dimensi 1", y = "Dimensi 2") +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    plot.subtitle = element_text(hjust = 0.5, size = 11),
+    legend.position = "none"
+  )
+
+plotca
+
+```
+
+***Interpretasi Plot Korespondensi***
+Biplot CA menunjukkan pemetaan hubungan antara layanan transportasi dan tingkat kepuasan pada dua dimensi. Dimensi 1 menjelaskan 89,8% keragaman asosiasi, sedangkan Dimensi 2 menjelaskan 10,2%, sehingga dua dimensi sudah mewakili hampir seluruh informasi. Titik Kereta berada berdekatan dengan kategori Sangat Puas, yang mengindikasikan responden Kereta lebih sering berada pada kepuasan sangat tinggi. Titik Angkot berada dekat dengan kategori Sangat Tidak Puas dan searah dengan Tidak Puas, yang menunjukkan Angkot cenderung berkaitan dengan tingkat ketidakpuasan. Titik Transjakarta berada dekat dengan kategori Puas, sehingga pola kepuasan Transjakarta lebih banyak terkonsentrasi pada tingkat puas (menengah) dibanding sangat puas. Secara keseluruhan, Kereta terkait dengan kepuasan tinggi, Angkot terkait dengan ketidakpuasan, dan Transjakarta berada di antara keduanya.
+
+
+# Kesimpulan
+analisis korespondensi pada data kontingensi Layanan Transportasi (Kereta, Transjakarta, Angkot) × Tingkat Kepuasan (SangatTidakPuas–SangatPuas) menunjukkan bahwa tingkat kepuasan pengguna berbeda nyata antar layanan. Pola pada tabel/balloon plot memperlihatkan Kereta lebih sering muncul pada kategori Puas dan terutama Sangat Puas, Transjakarta cenderung terkonsentrasi pada kategori Puas, sedangkan Angkot dominan pada Tidak Puas dan Sangat Tidak Puas. Hasil ini diperkuat oleh uji Pearson chi-square (X² = 198,5; df = 6; p-value < 2,2×10⁻¹⁶) yang menegaskan adanya keterkaitan signifikan antara layanan dan kepuasan. Pemetaan melalui CA juga konsisten: dua dimensi sudah memadai (Dimensi 1 = 89,8% dan Dimensi 2 = 10,2%), dengan Kereta berada dekat Sangat Puas, Angkot dekat Sangat Tidak Puas/Tidak Puas, dan Transjakarta dekat Puas. Dengan demikian, kepuasan pengguna tidak bersifat independen terhadap jenis layanan; Kereta terkait dengan kepuasan tinggi, Angkot terkait dengan ketidakpuasan, dan Transjakarta berada pada tingkat kepuasan menengah.
